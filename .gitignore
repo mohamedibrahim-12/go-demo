@@ -1,0 +1,15 @@
+# Binaries
+/bin/
+/build/
+
+# Environment files
+.env
+
+# IDE
+.vscode/
+
+# OS files
+.DS_Store
+
+# Go test cache
+*.out
