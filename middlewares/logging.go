@@ -1,9 +1,10 @@
 package middlewares
 
 import (
-	"log"
 	"net/http"
 	"time"
+
+	"go-demo/pkg/logger"
 )
 
 // LoggingMiddleware logs request method, path and execution time
@@ -17,11 +18,6 @@ func LoggingMiddleware(next http.Handler) http.Handler {
 
 		duration := time.Since(start)
 
-		log.Printf(
-			"[%s] %s took %v",
-			r.Method,
-			r.URL.Path,
-			duration,
-		)
+		logger.Log.Info().Str("method", r.Method).Str("path", r.URL.Path).Dur("latency", duration).Msg("request")
 	})
 }

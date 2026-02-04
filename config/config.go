@@ -1,9 +1,10 @@
 package config
 
 import (
-	"log"
 	"os"
 	"path/filepath"
+
+	"go-demo/pkg/logger"
 
 	"github.com/joho/godotenv"
 )
@@ -21,15 +22,15 @@ func LoadEnv() {
 	var envFile string
 	if env == "test" {
 		envFile = filepath.Join(root, ".env.test")
-		log.Println("🧪 Loading test environment")
+		logger.Log.Info().Msg("loading test environment")
 	} else {
 		envFile = filepath.Join(root, ".env")
-		log.Println("🚀 Loading production environment")
+		logger.Log.Info().Msg("loading production environment")
 	}
 
-	log.Println("Loading env file:", envFile)
+	logger.Log.Info().Str("envFile", envFile).Msg("loading env file")
 
 	if err := godotenv.Load(envFile); err != nil {
-		log.Fatalf("❌ Failed to load env file: %s", envFile)
+		logger.Log.Fatal().Err(err).Str("envFile", envFile).Msg("failed to load env file")
 	}
 }

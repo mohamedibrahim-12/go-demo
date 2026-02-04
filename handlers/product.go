@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"go-demo/models"
+	uuidpkg "go-demo/pkg/uuid"
+	"go-demo/pkg/validator"
 	"go-demo/repositories"
 )
 
@@ -24,6 +26,14 @@ func ProductHandler(w http.ResponseWriter, r *http.Request) {
 		var product models.Product
 		json.NewDecoder(r.Body).Decode(&product)
 
+		// assign UUID for the new product
+		product.UUID = uuidpkg.New()
+
+		if err := validator.Validate.Struct(product); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		if err := repositories.CreateProduct(product); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -40,6 +50,11 @@ func ProductHandler(w http.ResponseWriter, r *http.Request) {
 
 		var product models.Product
 		json.NewDecoder(r.Body).Decode(&product)
+
+		if err := validator.Validate.Struct(product); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		if err := repositories.UpdateProduct(id, product); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

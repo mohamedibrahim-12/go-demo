@@ -1,24 +1,27 @@
 package tests
 
 import (
-	"log"
 	"os"
 	"testing"
 
 	"go-demo/config"
 	"go-demo/database"
+	"go-demo/pkg/logger"
+	"go-demo/pkg/validator"
 )
 
 func TestMain(m *testing.M) {
 	// Ensure test env is loaded before connecting to DB
 	os.Setenv("APP_ENV", "test")
 	config.LoadEnv()
+	logger.Init()
+	validator.Init()
 	database.Connect()
 
 	// Run tests
 	code := m.Run()
 
-	log.Println("Tests finished")
+	logger.Log.Info().Msg("Tests finished")
 
 	os.Exit(code)
 }

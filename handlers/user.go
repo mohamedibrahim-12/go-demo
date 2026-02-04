@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"go-demo/models"
+	uuidpkg "go-demo/pkg/uuid"
+	"go-demo/pkg/validator"
 	"go-demo/repositories"
 )
 
@@ -24,6 +26,14 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 		var user models.User
 		json.NewDecoder(r.Body).Decode(&user)
 
+		// assign a UUID for this new user
+		user.UUID = uuidpkg.New()
+
+		if err := validator.Validate.Struct(user); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		if err := repositories.CreateUser(user); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -40,6 +50,11 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 
 		var user models.User
 		json.NewDecoder(r.Body).Decode(&user)
+
+		if err := validator.Validate.Struct(user); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		if err := repositories.UpdateUser(id, user); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

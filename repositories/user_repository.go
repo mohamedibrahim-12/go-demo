@@ -7,7 +7,7 @@ import (
 
 func GetUsers() ([]models.User, error) {
 	rows, err := database.DB.Query(
-		"SELECT id, name, role FROM users",
+		"SELECT id, uuid, name, role FROM users",
 	)
 	if err != nil {
 		return nil, err
@@ -17,7 +17,7 @@ func GetUsers() ([]models.User, error) {
 	var users []models.User
 	for rows.Next() {
 		var u models.User
-		rows.Scan(&u.ID, &u.Name, &u.Role)
+		rows.Scan(&u.ID, &u.UUID, &u.Name, &u.Role)
 		users = append(users, u)
 	}
 	return users, nil
@@ -25,7 +25,8 @@ func GetUsers() ([]models.User, error) {
 
 func CreateUser(u models.User) error {
 	_, err := database.DB.Exec(
-		"INSERT INTO users (name, role) VALUES ($1, $2)",
+		"INSERT INTO users (uuid, name, role) VALUES ($1, $2, $3)",
+		u.UUID,
 		u.Name,
 		u.Role,
 	)

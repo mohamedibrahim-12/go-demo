@@ -2,6 +2,7 @@ package models
 
 type Product struct {
 	ID    int     `json:"id"`
-	Name  string  `json:"name"`
-	Price float64 `json:"price"`
+	UUID  string  `json:"uuid,omitempty"`
+	Name  string  `json:"name" validate:"required"`
+	Price float64 `json:"price" validate:"required,gt=0"`
 }

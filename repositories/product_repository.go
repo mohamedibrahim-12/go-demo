@@ -7,7 +7,7 @@ import (
 
 func GetProducts() ([]models.Product, error) {
 	rows, err := database.DB.Query(
-		"SELECT id, name, price FROM products",
+		"SELECT id, uuid, name, price FROM products",
 	)
 	if err != nil {
 		return nil, err
@@ -17,7 +17,7 @@ func GetProducts() ([]models.Product, error) {
 	var products []models.Product
 	for rows.Next() {
 		var p models.Product
-		rows.Scan(&p.ID, &p.Name, &p.Price)
+		rows.Scan(&p.ID, &p.UUID, &p.Name, &p.Price)
 		products = append(products, p)
 	}
 	return products, nil
@@ -25,7 +25,8 @@ func GetProducts() ([]models.Product, error) {
 
 func CreateProduct(p models.Product) error {
 	_, err := database.DB.Exec(
-		"INSERT INTO products (name, price) VALUES ($1, $2)",
+		"INSERT INTO products (uuid, name, price) VALUES ($1, $2, $3)",
+		p.UUID,
 		p.Name,
 		p.Price,
 	)
