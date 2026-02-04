@@ -6,47 +6,21 @@ import (
 )
 
 func GetUsers() ([]models.User, error) {
-	rows, err := database.DB.Query(
-		"SELECT id, uuid, name, role FROM users",
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
 	var users []models.User
-	for rows.Next() {
-		var u models.User
-		rows.Scan(&u.ID, &u.UUID, &u.Name, &u.Role)
-		users = append(users, u)
+	if err := database.GormDB.Find(&users).Error; err != nil {
+		return nil, err
 	}
 	return users, nil
 }
 
 func CreateUser(u models.User) error {
-	_, err := database.DB.Exec(
-		"INSERT INTO users (uuid, name, role) VALUES ($1, $2, $3)",
-		u.UUID,
-		u.Name,
-		u.Role,
-	)
-	return err
+	return database.GormDB.Create(&u).Error
 }
 
 func UpdateUser(id int, u models.User) error {
-	_, err := database.DB.Exec(
-		"UPDATE users SET name=$1, role=$2 WHERE id=$3",
-		u.Name,
-		u.Role,
-		id,
-	)
-	return err
+	return database.GormDB.Model(&models.User{}).Where("id = ?", id).Updates(map[string]interface{}{"name": u.Name, "role": u.Role}).Error
 }
 
 func DeleteUser(id int) error {
-	_, err := database.DB.Exec(
-		"DELETE FROM users WHERE id=$1",
-		id,
-	)
-	return err
+	return database.GormDB.Delete(&models.User{}, id).Error
 }

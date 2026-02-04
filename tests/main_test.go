@@ -8,6 +8,7 @@ import (
 	"go-demo/database"
 	"go-demo/pkg/logger"
 	"go-demo/pkg/validator"
+	"go-demo/worker"
 )
 
 func TestMain(m *testing.M) {
@@ -17,6 +18,12 @@ func TestMain(m *testing.M) {
 	logger.Init()
 	validator.Init()
 	database.Connect()
+
+	// start audit worker in test binary so audit events are processed here too
+	worker.StartWorker()
+
+	// start notification worker in test binary so notifications are processed here too
+	worker.StartNotificationWorker()
 
 	// Run tests
 	code := m.Run()

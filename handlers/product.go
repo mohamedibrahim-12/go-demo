@@ -9,6 +9,7 @@ import (
 	uuidpkg "go-demo/pkg/uuid"
 	"go-demo/pkg/validator"
 	"go-demo/repositories"
+	"go-demo/worker"
 )
 
 func ProductHandler(w http.ResponseWriter, r *http.Request) {
@@ -21,6 +22,13 @@ func ProductHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(products)
+
+		worker.Publish(worker.NewEvent(
+			"READ",
+			"product",
+			0,
+			"listed products",
+		))
 
 	case http.MethodPost:
 		var product models.Product
@@ -39,6 +47,13 @@ func ProductHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
+
+		worker.Publish(worker.NewEvent(
+			"CREATE",
+			"product",
+			0,
+			"created product",
+		))
 
 	case http.MethodPut:
 		idStr := r.URL.Query().Get("id")
@@ -62,6 +77,13 @@ func ProductHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusOK)
 
+		worker.Publish(worker.NewEvent(
+			"UPDATE",
+			"product",
+			id,
+			"updated product",
+		))
+
 	case http.MethodDelete:
 		idStr := r.URL.Query().Get("id")
 		id, err := strconv.Atoi(idStr)
@@ -75,5 +97,12 @@ func ProductHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+
+		worker.Publish(worker.NewEvent(
+			"DELETE",
+			"product",
+			id,
+			"deleted product",
+		))
 	}
 }

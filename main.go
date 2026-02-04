@@ -9,6 +9,7 @@ import (
 	"go-demo/middlewares"
 	"go-demo/pkg/logger"
 	"go-demo/pkg/validator"
+	"go-demo/worker"
 
 	ghandlers "github.com/gorilla/handlers"
 )
@@ -18,6 +19,12 @@ func main() {
 	logger.Init()
 	// initialize validator before connecting/handling requests
 	validator.Init()
+
+	// start the background audit worker once for the lifetime of the process
+	worker.StartWorker()
+
+	// start the background notification worker once for the lifetime of the process
+	worker.StartNotificationWorker()
 
 	database.Connect()
 

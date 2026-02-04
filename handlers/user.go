@@ -9,6 +9,7 @@ import (
 	uuidpkg "go-demo/pkg/uuid"
 	"go-demo/pkg/validator"
 	"go-demo/repositories"
+	"go-demo/worker"
 )
 
 func UserHandler(w http.ResponseWriter, r *http.Request) {
@@ -21,6 +22,14 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(users)
+
+		// fire‑and‑forget audit log; API response is not blocked
+		worker.Publish(worker.NewEvent(
+			"READ",
+			"user",
+			0,
+			"listed users",
+		))
 
 	case http.MethodPost:
 		var user models.User
@@ -39,6 +48,22 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusCreated)
+
+		worker.Publish(worker.NewEvent(
+			"CREATE",
+			"user",
+			0,
+			"created user",
+		))
+
+		// enqueue welcome email notification asynchronously
+		// API response is not blocked by notification processing
+		recipient := user.Name + "@example.com" // construct email from user name
+		worker.EnqueueNotification(worker.NewNotificationJob(
+			"WELCOME_EMAIL",
+			recipient,
+			"Welcome to our platform, "+user.Name+"!",
+		))
 
 	case http.MethodPut:
 		idStr := r.URL.Query().Get("id")
@@ -62,6 +87,13 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 		}
 		w.WriteHeader(http.StatusOK)
 
+		worker.Publish(worker.NewEvent(
+			"UPDATE",
+			"user",
+			id,
+			"updated user",
+		))
+
 	case http.MethodDelete:
 		idStr := r.URL.Query().Get("id")
 		id, err := strconv.Atoi(idStr)
@@ -75,5 +107,12 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+
+		worker.Publish(worker.NewEvent(
+			"DELETE",
+			"user",
+			id,
+			"deleted user",
+		))
 	}
 }

@@ -5,12 +5,19 @@ import (
 	"fmt"
 	"os"
 
+	"go-demo/models"
 	"go-demo/pkg/logger"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	_ "github.com/lib/pq"
 )
 
-var DB *sql.DB
+var (
+	DB     *sql.DB
+	GormDB *gorm.DB
+)
 
 func Connect() {
 	dsn := fmt.Sprintf(
@@ -25,36 +32,62 @@ func Connect() {
 
 	// DSN constructed from env vars
 
+	// Initialize GORM on top of the DSN
 	var err error
-	DB, err = sql.Open("postgres", dsn)
+	GormDB, err = gorm.Open(postgres.New(postgres.Config{DSN: dsn, PreferSimpleProtocol: true}), &gorm.Config{})
 	if err != nil {
-		logger.Log.Fatal().Err(err).Msg("failed to open DB")
+		logger.Log.Fatal().Err(err).Msg("failed to open GORM DB")
 	}
+
+	// get underlying sql.DB from GORM and keep for compatibility
+	sqlDB, err := GormDB.DB()
+	if err != nil {
+		logger.Log.Fatal().Err(err).Msg("failed to get underlying sql.DB from Gorm")
+	}
+	DB = sqlDB
 
 	if err = DB.Ping(); err != nil {
 		logger.Log.Fatal().Err(err).Msg("failed to ping DB")
 	}
 
-	logger.Log.Info().Str("db", os.Getenv("DB_NAME")).Msg("connected to PostgreSQL")
+	// Migration gating using a lightweight schema_migrations table.
+	// This avoids per-column checks when models grow large.
+	migr := GormDB.Migrator()
 
-	// Run lightweight migrations to ensure `uuid` columns exist and pgcrypto is available.
-	migrations := []string{
-		`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`,
-		`CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, uuid UUID NOT NULL DEFAULT gen_random_uuid(), name TEXT NOT NULL, role TEXT NOT NULL);`,
-		`CREATE TABLE IF NOT EXISTS products (id SERIAL PRIMARY KEY, uuid UUID NOT NULL DEFAULT gen_random_uuid(), name TEXT NOT NULL, price NUMERIC NOT NULL);`,
-		`ALTER TABLE users ADD COLUMN IF NOT EXISTS uuid UUID;`,
-		`UPDATE users SET uuid = gen_random_uuid() WHERE uuid IS NULL;`,
-		`ALTER TABLE users ALTER COLUMN uuid SET NOT NULL;`,
-		`ALTER TABLE users ALTER COLUMN uuid SET DEFAULT gen_random_uuid();`,
-		`ALTER TABLE products ADD COLUMN IF NOT EXISTS uuid UUID;`,
-		`UPDATE products SET uuid = gen_random_uuid() WHERE uuid IS NULL;`,
-		`ALTER TABLE products ALTER COLUMN uuid SET NOT NULL;`,
-		`ALTER TABLE products ALTER COLUMN uuid SET DEFAULT gen_random_uuid();`,
-	}
-
-	for _, m := range migrations {
-		if _, err := DB.Exec(m); err != nil {
-			logger.Log.Error().Err(err).Str("migration", m).Msg("migration statement failed")
+	// Ensure the migrations table exists (simple single-row key table)
+	if !migr.HasTable("schema_migrations") {
+		if err := GormDB.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (version text PRIMARY KEY, applied_at timestamptz DEFAULT now())`).Error; err != nil {
+			logger.Log.Warn().Err(err).Msg("failed to create schema_migrations table; continuing")
 		}
 	}
+
+	// Check whether our auto-migrate version has already been applied
+	var appliedCount int64
+	const migrationVersion = "auto_migrate_v1"
+	if err := GormDB.Raw(`SELECT COUNT(1) FROM schema_migrations WHERE version = ?`, migrationVersion).Scan(&appliedCount).Error; err != nil {
+		// If the query fails for unexpected reasons, fall back to attempting migration
+		logger.Log.Warn().Err(err).Msg("failed to query schema_migrations; will attempt AutoMigrate")
+		appliedCount = 0
+	}
+
+	if appliedCount == 0 {
+		// Ensure pgcrypto extension exists (needed for gen_random_uuid())
+		if res := GormDB.Exec(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`); res.Error != nil {
+			logger.Log.Warn().Err(res.Error).Msg("failed to ensure pgcrypto extension; continuing and hoping extension exists")
+		}
+
+		if err := GormDB.AutoMigrate(&models.User{}, &models.Product{}); err != nil {
+			logger.Log.Fatal().Err(err).Msg("auto-migrate failed")
+		}
+
+		if err := GormDB.Exec(`INSERT INTO schema_migrations (version) VALUES (?) ON CONFLICT DO NOTHING`, migrationVersion).Error; err != nil {
+			logger.Log.Warn().Err(err).Msg("failed to record applied migration version; migration still applied")
+		}
+
+		logger.Log.Info().Str("migration", migrationVersion).Msg("auto-migrate completed and recorded")
+	} else {
+		logger.Log.Info().Str("migration", migrationVersion).Msg("migration already applied; skipping AutoMigrate")
+	}
+
+	logger.Log.Info().Str("db", os.Getenv("DB_NAME")).Msg("connected to PostgreSQL")
 }
