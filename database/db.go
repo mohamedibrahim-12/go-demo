@@ -89,5 +89,17 @@ func Connect() {
 		logger.Log.Info().Str("migration", migrationVersion).Msg("migration already applied; skipping AutoMigrate")
 	}
 
+	// v2: ensure created_at columns exist for cleanup worker (idempotent)
+	for _, q := range []string{
+		`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+		`ALTER TABLE products ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`,
+	} {
+		if err := GormDB.Exec(q).Error; err != nil {
+			logger.Log.Fatal().Err(err).Msg("auto-migrate v2 (created_at) failed")
+		}
+	}
+	const migrationV2 = "auto_migrate_v2"
+	_ = GormDB.Exec(`INSERT INTO schema_migrations (version) VALUES (?) ON CONFLICT DO NOTHING`, migrationV2).Error
+
 	logger.Log.Info().Str("db", os.Getenv("DB_NAME")).Msg("connected to PostgreSQL")
 }

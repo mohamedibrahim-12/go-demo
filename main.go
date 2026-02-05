@@ -28,6 +28,9 @@ func main() {
 
 	database.Connect()
 
+	// start the data cleanup worker once; runs periodically via time.Ticker
+	worker.StartCleanupWorker()
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/users", apphandlers.UserHandler)
