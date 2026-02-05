@@ -9,7 +9,7 @@ import (
 
 // DefaultRetention is the period after which records are considered expired
 // and removed by the cleanup worker (e.g. 7 days).
-const DefaultRetention = 5 * time.Minute
+const DefaultRetention = 1 * time.Minute
 
 // CleanupInterval is how often the worker runs (e.g. every 1 minute).
 const CleanupInterval = 1 * time.Minute
@@ -53,15 +53,15 @@ func runCleanup(retention time.Duration) {
 	cutoff := time.Now().Add(-retention)
 
 	// Delete old users
-	// resultUsers := database.GormDB.Exec(
-	// 	`DELETE FROM users WHERE created_at < ?`,
-	// 	cutoff,
-	// )
-	// if resultUsers.Error != nil {
-	// 	logger.Log.Error().Err(resultUsers.Error).Msg("cleanup users failed")
-	// 	return
-	// }
-	// usersDeleted := resultUsers.RowsAffected
+	resultUsers := database.GormDB.Exec(
+		`DELETE FROM users WHERE created_at < ?`,
+		cutoff,
+	)
+	if resultUsers.Error != nil {
+		logger.Log.Error().Err(resultUsers.Error).Msg("cleanup users failed")
+		return
+	}
+	usersDeleted := resultUsers.RowsAffected
 
 	// Delete old products
 	resultProducts := database.GormDB.Exec(
@@ -74,9 +74,9 @@ func runCleanup(retention time.Duration) {
 	}
 	productsDeleted := resultProducts.RowsAffected
 
-	if productsDeleted > 0 {
+	if usersDeleted > 0 || productsDeleted > 0 {
 		logger.Log.Info().
-			// Int64("users_deleted", usersDeleted).
+			Int64("users_deleted", usersDeleted).
 			Int64("products_deleted", productsDeleted).
 			Msg("cleanup run completed")
 	}
