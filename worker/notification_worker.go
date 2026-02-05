@@ -3,96 +3,99 @@ package worker
 import (
 	"time"
 
+	"go-demo/database"
+	"go-demo/models"
 	"go-demo/pkg/logger"
 )
 
-// NotificationJob represents a single notification task to be processed
-// asynchronously by the background worker.
-type NotificationJob struct {
-	Type      string    // e.g. WELCOME_EMAIL, PASSWORD_RESET, etc.
-	Recipient string    // email address or identifier of the recipient
-	Message   string    // notification message content
-	CreatedAt time.Time // timestamp when the job was created
-}
-
-// notificationQueueSize controls how many notification jobs can be buffered
-// before we start dropping new ones. This keeps the API fast under backpressure.
-const notificationQueueSize = 100
-
-// NotificationQueue is the buffered channel used to hand off notification jobs
-// to the background worker. It is initialized by StartNotificationWorker.
-var NotificationQueue chan NotificationJob
-
-// StartNotificationWorker initializes the global notification queue and starts
-// a single background goroutine that processes notification jobs.
-//
-// The worker continuously listens on NotificationQueue and simulates sending
-// emails by logging them. Failures are logged but never crash the application.
-//
-// This should be called once from main() during application startup.
+// StartNotificationWorker initializes the notification worker that polls the database.
 func StartNotificationWorker() {
-	NotificationQueue = make(chan NotificationJob, notificationQueueSize)
-
 	go func() {
-		// Worker loop: continuously process jobs from the queue
-		for job := range NotificationQueue {
-			// Simulate email sending by logging the notification.
-			// In production, this would call an email service (SMTP, SendGrid, etc.)
-			// Wrapped in a recover to ensure worker never crashes on failure.
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Log.Error().
-							Interface("panic", r).
-							Str("notification_type", job.Type).
-							Str("recipient", job.Recipient).
-							Msg("notification worker panic recovered; continuing")
-					}
-				}()
+		ticker := time.NewTicker(1 * time.Second) // Poll every second
+		defer ticker.Stop()
 
-				// Simulate time-consuming email operation
-				// In real implementation, this would be: smtp.Send(...)
-				logger.Log.Info().
-					Str("notification_type", job.Type).
-					Str("recipient", job.Recipient).
-					Str("message", job.Message).
-					Time("created_at", job.CreatedAt).
-					Msg("notification sent")
-			}()
+		for range ticker.C {
+			processNotificationJobs()
 		}
 	}()
+	logger.Log.Info().Msg("notification worker started (db polling)")
 }
 
-// NewNotificationJob is a helper to construct a NotificationJob with the
-// current timestamp.
-func NewNotificationJob(jobType, recipient, message string) NotificationJob {
-	return NotificationJob{
+func processNotificationJobs() {
+	if database.GormDB == nil {
+		return
+	}
+
+	// Fetch up to 100 pending jobs
+	var jobs []models.NotificationJob
+	// Find jobs where Status is PENDING
+	if err := database.GormDB.Where("status = ?", "PENDING").Limit(100).Order("created_at asc").Find(&jobs).Error; err != nil {
+		logger.Log.Error().Err(err).Msg("failed to fetch notification jobs")
+		return
+	}
+
+	if len(jobs) == 0 {
+		return
+	}
+
+	for _, job := range jobs {
+		processSingleJob(job)
+	}
+}
+
+func processSingleJob(job models.NotificationJob) {
+	// Wrapper to handle panic recovery per job
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Log.Error().
+				Interface("panic", r).
+				Str("notification_type", job.Type).
+				Str("recipient", job.Recipient).
+				Msg("notification worker panic recovered; marking failed")
+			
+			// Mark as FAILED
+			job.Status = "FAILED"
+			job.Error = "Panic recovered"
+			database.GormDB.Save(&job)
+		}
+	}()
+
+	// Simulate processing
+	logger.Log.Info().
+		Str("notification_type", job.Type).
+		Str("recipient", job.Recipient).
+		Str("message", job.Message).
+		Time("created_at", job.CreatedAt).
+		Msg("notification sent")
+
+	// Mark as PROCESSED
+	now := time.Now()
+	job.Status = "PROCESSED"
+	job.ProcessedAt = &now
+	if err := database.GormDB.Save(&job).Error; err != nil {
+		logger.Log.Error().Err(err).Msg("failed to update notification job status")
+	}
+}
+
+// NewNotificationJob is a helper to construct a NotificationJob.
+func NewNotificationJob(jobType, recipient, message string) models.NotificationJob {
+	return models.NotificationJob{
 		Type:      jobType,
 		Recipient: recipient,
 		Message:   message,
 		CreatedAt: time.Now(),
+		Status:    "PENDING",
 	}
 }
 
-// EnqueueNotification queues a notification job for asynchronous processing.
-// The send is non-blocking; if the queue is full the job is dropped and a
-// warning is logged, ensuring API handlers are never slowed by notification
-// processing.
-func EnqueueNotification(job NotificationJob) {
-	if NotificationQueue == nil {
-		// Worker not started; avoid panics in tests or misconfiguration.
-		logger.Log.Warn().Msg("notification worker not started; dropping job")
+// EnqueueNotification queues a notification job in the database.
+func EnqueueNotification(job models.NotificationJob) {
+	if database.GormDB == nil {
+		logger.Log.Warn().Msg("notification enqueue skipped: no DB connection")
 		return
 	}
 
-	select {
-	case NotificationQueue <- job:
-		// Successfully enqueued
-	default:
-		// Queue full; drop the job to avoid blocking the API
-		logger.Log.Warn().
-			Str("notification_type", job.Type).
-			Str("recipient", job.Recipient).
-			Msg("notification queue full; dropping job")
+	if err := database.GormDB.Create(&job).Error; err != nil {
+		logger.Log.Error().Err(err).Msg("failed to enqueue notification job")
 	}
 }

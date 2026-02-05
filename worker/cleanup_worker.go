@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"go-demo/database"
+	"go-demo/models"
 	"go-demo/pkg/logger"
 )
 
@@ -53,8 +54,9 @@ func runCleanup(retention time.Duration) {
 	cutoff := time.Now().Add(-retention)
 
 	// Delete old users
-	resultUsers := database.GormDB.Exec(
-		`DELETE FROM users WHERE created_at < ?`,
+	resultUsers := database.GormDB.Delete(
+		&models.User{},
+		"created_at < ?",
 		cutoff,
 	)
 	if resultUsers.Error != nil {
@@ -64,8 +66,9 @@ func runCleanup(retention time.Duration) {
 	usersDeleted := resultUsers.RowsAffected
 
 	// Delete old products
-	resultProducts := database.GormDB.Exec(
-		`DELETE FROM products WHERE created_at < ?`,
+	resultProducts := database.GormDB.Delete(
+		&models.Product{},
+		"created_at < ?",
 		cutoff,
 	)
 	if resultProducts.Error != nil {

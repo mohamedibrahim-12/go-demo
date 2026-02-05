@@ -4,90 +4,57 @@ import (
 	"testing"
 	"time"
 
+	"go-demo/database"
+	"go-demo/models"
 	"go-demo/worker"
+
+	. "github.com/onsi/gomega"
 )
 
-// TestNotificationWorkerEnqueue tests that a notification job can be
-// successfully enqueued without blocking.
+// TestNotificationWorkerEnqueue verifies that a notification job is persisted to the database.
 func TestNotificationWorkerEnqueue(t *testing.T) {
-	// Verify the queue exists (started in TestMain)
-	if worker.NotificationQueue == nil {
-		t.Fatal("NotificationQueue should be initialized by TestMain")
-	}
+	RegisterTestingT(t)
 
 	// Create and enqueue a test notification job
 	job := worker.NewNotificationJob(
 		"WELCOME_EMAIL",
-		"test@example.com",
-		"Test welcome message",
+		"test_enqueue@example.com",
+		"Test enqueue message",
 	)
 
-	// Enqueue should not block
+	// Enqueue should insert into DB
 	worker.EnqueueNotification(job)
 
-	// Give the worker a moment to process
-	time.Sleep(100 * time.Millisecond)
-
-	// If we get here without blocking, the enqueue worked
+	// Verify it exists in DB
+	var savedJob models.NotificationJob
+	err := database.GormDB.Where("recipient = ?", "test_enqueue@example.com").Last(&savedJob).Error
+	Expect(err).To(BeNil())
+	Expect(savedJob.Type).To(Equal("WELCOME_EMAIL"))
+	Expect(savedJob.Status).To(Equal("PENDING"))
 }
 
-// TestNotificationWorkerProcessesJob tests that the worker processes
-// notification jobs from the queue. Since the worker logs the notification,
-// we verify the job structure is correct and can be enqueued.
+// TestNotificationWorkerProcessesJob verifies that if we run the worker logic, it processes the job.
+// Note: We cannot easily call the unexported process loop, but we can start the worker and wait.
 func TestNotificationWorkerProcessesJob(t *testing.T) {
-	// Verify the queue exists
-	if worker.NotificationQueue == nil {
-		t.Fatal("NotificationQueue should be initialized by TestMain")
-	}
+	RegisterTestingT(t)
 
-	// Create a test notification job
-	jobType := "WELCOME_EMAIL"
-	recipient := "newuser@example.com"
-	message := "Welcome to our platform!"
+	// Start the worker (it will poll every second)
+	worker.StartNotificationWorker()
 
-	job := worker.NewNotificationJob(jobType, recipient, message)
-
-	// Verify job structure
-	if job.Type != jobType {
-		t.Errorf("expected job type %s, got %s", jobType, job.Type)
-	}
-	if job.Recipient != recipient {
-		t.Errorf("expected recipient %s, got %s", recipient, job.Recipient)
-	}
-	if job.Message != message {
-		t.Errorf("expected message %s, got %s", message, job.Message)
-	}
-	if job.CreatedAt.IsZero() {
-		t.Error("job CreatedAt should be set")
-	}
-
-	// Enqueue the job (non-blocking)
+	// Enqueue a job
+	recipient := "process_test@example.com"
+	job := worker.NewNotificationJob("RESET_PASSWORD", recipient, "Reset your password")
 	worker.EnqueueNotification(job)
 
-	// Give the worker time to process
-	time.Sleep(200 * time.Millisecond)
+	// Wait for worker to pick it up (poll interval is 1s)
+	Eventually(func() string {
+		var j models.NotificationJob
+		database.GormDB.Where("recipient = ?", recipient).Last(&j)
+		return j.Status
+	}, 3*time.Second, 500*time.Millisecond).Should(Equal("PROCESSED"))
 
-	// If we get here, the job was successfully enqueued and processed
-	// The actual processing is verified by the worker logging the notification
-}
-
-// TestNotificationWorkerNonBlocking verifies that enqueueing notifications
-// does not block even when multiple jobs are enqueued rapidly.
-func TestNotificationWorkerNonBlocking(t *testing.T) {
-	if worker.NotificationQueue == nil {
-		t.Fatal("NotificationQueue should be initialized by TestMain")
-	}
-
-	// Enqueue multiple jobs rapidly
-	for i := 0; i < 10; i++ {
-		job := worker.NewNotificationJob(
-			"WELCOME_EMAIL",
-			"user@example.com",
-			"Welcome message",
-		)
-		worker.EnqueueNotification(job)
-	}
-
-	// If we get here without blocking, the non-blocking behavior works
-	time.Sleep(100 * time.Millisecond)
+	// Verify ProcessedAt is set
+	var j models.NotificationJob
+	database.GormDB.Where("recipient = ?", recipient).Last(&j)
+	Expect(j.ProcessedAt).NotTo(BeNil())
 }

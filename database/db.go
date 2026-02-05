@@ -76,7 +76,7 @@ func Connect() {
 			logger.Log.Warn().Err(res.Error).Msg("failed to ensure pgcrypto extension; continuing and hoping extension exists")
 		}
 
-		if err := GormDB.AutoMigrate(&models.User{}, &models.Product{}); err != nil {
+		if err := GormDB.AutoMigrate(&models.User{}, &models.Product{}, &models.AuditLog{}, &models.NotificationJob{}); err != nil {
 			logger.Log.Fatal().Err(err).Msg("auto-migrate failed")
 		}
 
@@ -100,6 +100,13 @@ func Connect() {
 	}
 	const migrationV2 = "auto_migrate_v2"
 	_ = GormDB.Exec(`INSERT INTO schema_migrations (version) VALUES (?) ON CONFLICT DO NOTHING`, migrationV2).Error
+
+	// v3: ensure worker tables exist
+	if err := GormDB.AutoMigrate(&models.AuditLog{}, &models.NotificationJob{}); err != nil {
+		logger.Log.Fatal().Err(err).Msg("auto-migrate v3 (workers) failed")
+	}
+	const migrationV3 = "auto_migrate_v3"
+	_ = GormDB.Exec(`INSERT INTO schema_migrations (version) VALUES (?) ON CONFLICT DO NOTHING`, migrationV3).Error
 
 	logger.Log.Info().Str("db", os.Getenv("DB_NAME")).Msg("connected to PostgreSQL")
 }

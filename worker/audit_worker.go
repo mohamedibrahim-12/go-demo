@@ -3,70 +3,82 @@ package worker
 import (
 	"time"
 
+	"go-demo/database"
+	"go-demo/models"
 	"go-demo/pkg/logger"
 )
 
-// Event represents a single audit entry for business actions in the API.
-type Event struct {
-	Action    string    // e.g. CREATE, UPDATE, DELETE, READ
-	Entity    string    // e.g. user, product
-	EntityID  int       // database identifier when available
-	Message   string    // human‑readable description
-	Timestamp time.Time // time when the action occurred
-}
-
-// queueSize controls how many audit events can be buffered before we start
-// dropping new ones. This keeps the API fast under backpressure.
-const queueSize = 100
-
-// EventQueue is the buffered channel used to hand off audit events to the
-// background worker. It is initialized by StartWorker.
-var EventQueue chan Event
-
-// StartWorker initializes the global audit queue and starts a single
-// background goroutine that processes audit events.
-//
-// This should be called once from main() during application startup.
+// StartWorker initializes the audit worker that polls the database for new audit logs.
 func StartWorker() {
-	EventQueue = make(chan Event, queueSize)
-
 	go func() {
-		for ev := range EventQueue {
-			logger.Log.Info().
-				Str("audit_action", ev.Action).
-				Str("audit_entity", ev.Entity).
-				Int("audit_entity_id", ev.EntityID).
-				Str("audit_message", ev.Message).
-				Time("audit_timestamp", ev.Timestamp).
-				Msg("audit event")
+		ticker := time.NewTicker(1 * time.Second) // Poll every second
+		defer ticker.Stop()
+
+		for range ticker.C {
+			processAuditLogs()
 		}
 	}()
+	logger.Log.Info().Msg("audit worker started (db polling)")
 }
 
-// NewEvent is a small helper to construct an Event with the current timestamp.
-func NewEvent(action, entity string, entityID int, message string) Event {
-	return Event{
+func processAuditLogs() {
+	if database.GormDB == nil {
+		return
+	}
+
+	// Fetch up to 100 pending logs
+	var logs []models.AuditLog
+	// Find logs where ProcessedAt is NULL
+	if err := database.GormDB.Where("processed_at IS NULL").Limit(100).Order("created_at asc").Find(&logs).Error; err != nil {
+		logger.Log.Error().Err(err).Msg("failed to fetch audit logs")
+		return
+	}
+
+	if len(logs) == 0 {
+		return
+	}
+
+	for _, logEntry := range logs {
+		// "Process" the log by actual logging
+		logger.Log.Info().
+			Str("audit_action", logEntry.Action).
+			Str("audit_entity", logEntry.Entity).
+			Int("audit_entity_id", logEntry.EntityID).
+			Str("audit_message", logEntry.Message).
+			Time("audit_timestamp", logEntry.Timestamp).
+			Msg("audit event processed")
+
+		// Mark as processed
+		now := time.Now()
+		logEntry.ProcessedAt = &now
+		if err := database.GormDB.Save(&logEntry).Error; err != nil {
+			logger.Log.Error().Err(err).Msg("failed to mark audit log as processed")
+		}
+	}
+}
+
+// NewEvent helper is no longer strictly needed but kept for compatibility if referenced elsewhere.
+// In this refactor, we usually just create the struct directly or use this helper to create the struct
+// before passing to Publish.
+func NewEvent(action, entity string, entityID int, message string) models.AuditLog {
+	return models.AuditLog{
 		Action:    action,
 		Entity:    entity,
 		EntityID:  entityID,
 		Message:   message,
 		Timestamp: time.Now(),
+		CreatedAt: time.Now(),
 	}
 }
 
-// Publish queues an audit event for asynchronous processing. The send is
-// non‑blocking; if the queue is full the event is dropped and a warning is
-// logged, ensuring API handlers are never slowed by audit logging.
-func Publish(ev Event) {
-	if EventQueue == nil {
-		// Worker not started; avoid panics in tests or misconfiguration.
-		logger.Log.Warn().Msg("audit worker not started; dropping event")
+// Publish writes an audit event to the database queue.
+func Publish(ev models.AuditLog) {
+	if database.GormDB == nil {
+		logger.Log.Warn().Msg("audit publish skipped: no DB connection")
 		return
 	}
 
-	select {
-	case EventQueue <- ev:
-	default:
-		logger.Log.Warn().Msg("audit queue full; dropping event")
+	if err := database.GormDB.Create(&ev).Error; err != nil {
+		logger.Log.Error().Err(err).Msg("failed to publish audit event")
 	}
 }
