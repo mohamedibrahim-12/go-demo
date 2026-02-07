@@ -102,7 +102,7 @@ func Connect() {
 	_ = GormDB.Exec(`INSERT INTO schema_migrations (version) VALUES (?) ON CONFLICT DO NOTHING`, migrationV2).Error
 
 	// v3: ensure worker tables exist
-	if err := GormDB.AutoMigrate(&models.AuditLog{}, &models.NotificationJob{}); err != nil {
+	if err := GormDB.AutoMigrate(&models.AuditLog{}, &models.NotificationOutbox{}); err != nil {
 		logger.Log.Fatal().Err(err).Msg("auto-migrate v3 (workers) failed")
 	}
 	const migrationV3 = "auto_migrate_v3"

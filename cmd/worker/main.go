@@ -6,6 +6,8 @@ import (
 	"go-demo/pkg/logger"
 	"go-demo/pkg/validator"
 	"go-demo/worker"
+
+	"github.com/robfig/cron/v3"
 )
 
 func main() {
@@ -19,15 +21,22 @@ func main() {
 	logger.Log.Info().Msg("Starting background workers...")
 
 	// start the background audit worker
-	// This starts a goroutine that listens on a channel
+	// This starts a goroutine that listens on a channel (or DB polling in v2)
 	worker.StartWorker()
 
 	// start the background notification worker
 	// This also starts a goroutine
 	worker.StartNotificationWorker()
 
-	// start the data cleanup worker once; runs periodically via time.Ticker
-	worker.StartCleanupWorker()
+	// Initialize Cron Scheduler
+	c := cron.New()
+
+	// Register the cleanup worker
+	worker.RegisterCleanupWorker(c)
+
+	// Start the cron scheduler (runs in its own goroutine)
+	c.Start()
+	logger.Log.Info().Msg("cron scheduler started")
 
 	logger.Log.Info().Msg("Background workers started successfully")
 

@@ -20,7 +20,21 @@ type AuditLog struct {
 	CreatedAt time.Time
 }
 
-// NotificationJob acts as a persistent queue for notifications.
+// NotificationOutbox acts as a persistent queue (Outbox) for notifications.
+// It uses a generic payload to allow different types of notifications.
+type NotificationOutbox struct {
+	ID        uint      `gorm:"primaryKey"`
+	EventType string    `gorm:"not null"`          // e.g. WELCOME_EMAIL, PASSWORD_RESET
+	Payload   string    `gorm:"not null;type:text"` // JSON payload
+	Status    string    `gorm:"default:'PENDING';index"` // PENDING, PROCESSING, DONE, FAILED
+	
+	ProcessedAt *time.Time
+	Error       string
+	
+	CreatedAt time.Time
+}
+
+// Deprecated: Scan NotificationJob from NotificationOutbox instead
 type NotificationJob struct {
 	ID        uint      `gorm:"primaryKey"`
 	Type      string    `gorm:"not null"`

@@ -58,12 +58,17 @@ func UserHandler(w http.ResponseWriter, r *http.Request) {
 
 		// enqueue welcome email notification asynchronously
 		// API response is not blocked by notification processing
-		recipient := user.Name + "@example.com" // construct email from user name
-		worker.EnqueueNotification(worker.NewNotificationJob(
-			"WELCOME_EMAIL",
-			recipient,
-			"Welcome to our platform, "+user.Name+"!",
-		))
+		// enqueue welcome email notification asynchronously using Outbox Pattern
+		// API response is not blocked by notification processing
+		// Payload: JSON
+		recipient := user.Name + "@example.com"
+		payloadMap := map[string]string{
+			"recipient": recipient,
+			"message":   "Welcome to our platform, " + user.Name + "!",
+		}
+		payloadBytes, _ := json.Marshal(payloadMap)
+
+		repositories.CreateNotificationOutbox("WELCOME_EMAIL", string(payloadBytes))
 
 	case http.MethodPut:
 		idStr := r.URL.Query().Get("id")
